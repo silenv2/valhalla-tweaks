@@ -13,6 +13,9 @@ namespace Hooks
 	float Hook_OnGetAttackStaminaCost::getAttackStaminaCost(RE::ActorValueOwner* avOwner, RE::BGSAttackData* atkData)
 	{
 		RE::Actor* a_actor = Utils::AvOwner::asActor(avOwner);
+		if (!a_actor) {
+			return _getAttackStaminaCost(avOwner, atkData);
+		}
 		if (!settings::bNonCombatStaminaCost && !a_actor->IsInCombat()) {
 			return 0;
 		}
