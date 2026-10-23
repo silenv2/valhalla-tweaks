@@ -1,0 +1,26 @@
+name: Build Valhalla (perfect block tweaks)
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      CompiledPluginsPath: ${{ github.workspace }}/out
+      CommonLibSSEPath_NG: ${{ github.workspace }}/CommonLibSSE-NG
+      VCPKG_ROOT: C:/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: CharmedBaryon/CommonLibSSE-NG
+          path: CommonLibSSE-NG
+          submodules: recursive
+      - name: Configure
+        run: cmake --preset vs2022-windows
+      - name: Build
+        run: cmake --build build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: valhallaCombat-dll
+          path: |
+            out/SKSE/Plugins/*.dll
+            build/**/*.dll
