@@ -529,14 +529,14 @@ namespace DtryUtils
 				logger::critical("Error: TESDataHandler not found.");
 			}
 			if (!_dataHandler->LookupModByName(pluginName)) {
-				logger::critical("Error: {} not found.", pluginName);
+				logger::critical("Error: {} not found.", pluginName.c_str());
 			}
-			logger::info("Loading from plugin {}...", pluginName);
+			logger::info("Loading from plugin {}...", pluginName.c_str());
 		}
 
 		~formLoader()
 		{
-			logger::info("Loaded {} forms from {}", _loadedForms, _pluginName);
+			logger::info("Loaded {} forms from {}", _loadedForms, _pluginName.c_str());
 		}
 
 		/*Load a form from the plugin.*/
@@ -545,7 +545,7 @@ namespace DtryUtils
 		{
 			formRet = _dataHandler->LookupForm<formType>(formID, _pluginName);
 			if (!formRet) {
-				logger::critical("Error: null formID or wrong form type when loading {} from {}", formID, _pluginName);
+				logger::critical("Error: null formID or wrong form type when loading {} from {}", formID, _pluginName.c_str());
 			}
 			_loadedForms++;
 		}
