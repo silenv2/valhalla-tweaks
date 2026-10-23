@@ -81,7 +81,7 @@ void settings::updateGameSettings() {
 /*read settings from ini, and update them into game settings.*/
 void settings::readSettings() {
 	logger::info("Read ini settings...");
-	DtryUtils::settingsLoader MCM_Settings(SETTINGFILE_PATH);
+	DtryUtils::settingsLoader MCM_Settings("Data\\MCM\\Config\\ValhallaCombat\\settings.ini", "Data\\MCM\\Settings\\ValhallaCombat.ini");
 
 	MCM_Settings.setActiveSection("Stamina");
 	MCM_Settings.FETCH(bUIAlert);
