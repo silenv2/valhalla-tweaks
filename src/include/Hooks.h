@@ -267,7 +267,7 @@ namespace Hooks
 		Hook_OnProjectileCollision::install();
 		Hook_OnMeleeCollision::install();
 		Hook_OnAttackAction::install();
-		Hook_GetWantBlock::install();
+		//Hook_GetWantBlock::install(); //DISABLED: this hook has no Anniversary Edition address (ID 0) and crashes the game on 1.6.x.
 		Hook_AttackBlockHandler_OnProcessButton::install();
 		logger::info("...done");
 	}
