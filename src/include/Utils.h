@@ -40,7 +40,17 @@ namespace Utils
 	namespace AvOwner
 	{
 		inline RE::Actor* asActor(RE::ActorValueOwner* a_avOwner) {
-			return a_avOwner ? static_cast<RE::Actor*>(a_avOwner) : nullptr;
+			if (!a_avOwner) return nullptr;
+			// Find the offset of the ActorValueOwner part inside an Actor using the player as a sample,
+			// so this works with any layout of the library.
+			static std::ptrdiff_t offset = -1;
+			if (offset < 0) {
+				auto pc = RE::PlayerCharacter::GetSingleton();
+				if (!pc) return nullptr;
+				RE::Actor* sample = pc;
+				offset = reinterpret_cast<char*>(sample->AsActorValueOwner()) - reinterpret_cast<char*>(sample);
+			}
+			return reinterpret_cast<RE::Actor*>(reinterpret_cast<char*>(a_avOwner) - offset);
 		}
 	}
 }
