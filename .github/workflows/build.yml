@@ -2,7 +2,7 @@ name: Build Valhalla (perfect block tweaks)
 on: workflow_dispatch
 jobs:
   build:
-    runs-on: windows-2022
+    run: cmake --preset vs2022-windows -DCMAKE_CXX_FLAGS="/EHsc /MP /W3"
     env:
       CompiledPluginsPath: ${{ github.workspace }}/out
       CommonLibSSEPath_NG: ${{ github.workspace }}/CommonLibSSE-NG
