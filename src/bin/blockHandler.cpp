@@ -13,6 +13,75 @@
 
 
 using HITFLAG = RE::HitData::Flag;
+
+#pragma region PerfectBlockTweaks
+/* Custom tweaks: partial stamina restore on perfect block + poise damage via a spell.
+   Settings come from Data\SKSE\Plugins\ValhallaPerfectBlockTweaks.ini */
+namespace PerfectBlockTweaks
+{
+	static bool loaded = false;
+	static float staminaRestorePercent = 0.15f;  // fraction of max stamina restored on a perfect block
+	static float poiseMagnitude = 0.0f;          // 0 = use the spell's own magnitude
+	static bool poiseEnabled = true;
+	static float perfectBlockWindow = 0.15f;     // seconds after raising the guard in which a block counts as perfect
+	static std::string poisePlugin = "ValhallaPoiseBlock.esp";
+	static std::uint32_t poiseFormID = 0x800;
+	static RE::SpellItem* poiseSpell = nullptr;
+	static bool poiseLookupDone = false;
+
+	static void load()
+	{
+		if (loaded) return;
+		loaded = true;
+		CSimpleIniA ini;
+		ini.SetUnicode();
+		if (ini.LoadFile("Data\\SKSE\\Plugins\\ValhallaPerfectBlockTweaks.ini") < 0) {
+			logger::info("PerfectBlockTweaks: ini not found, using defaults.");
+		}
+		staminaRestorePercent = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fStaminaRestorePercent", 0.15));
+		perfectBlockWindow = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fPerfectBlockWindow", 0.15));
+		poiseEnabled = ini.GetBoolValue("PerfectBlock", "bPoiseDamage", true);
+		poiseMagnitude = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fPoiseMagnitude", 0.0));
+		poisePlugin = ini.GetValue("PerfectBlock", "sPoisePlugin", "ValhallaPoiseBlock.esp");
+		poiseFormID = static_cast<std::uint32_t>(std::stoul(ini.GetValue("PerfectBlock", "sPoiseSpellFormID", "800"), nullptr, 16));
+		logger::info("PerfectBlockTweaks: staminaRestorePercent={}, poiseEnabled={}, poiseMagnitude={}", staminaRestorePercent, poiseEnabled, poiseMagnitude);
+	}
+
+	static float getPerfectBlockWindow()
+	{
+		load();
+		return perfectBlockWindow;
+	}
+
+	static void restoreStamina(RE::Actor* a_blocker)
+	{
+		load();
+		float maxStamina = a_blocker->AsActorValueOwner()->GetPermanentActorValue(RE::ActorValue::kStamina);
+		float restore = maxStamina * staminaRestorePercent;
+		if (restore > 0.f) {
+			Utils::Actor::restoreav(a_blocker, RE::ActorValue::kStamina, restore);
+		}
+	}
+
+	static void damagePoise(RE::Actor* a_blocker, RE::Actor* a_attacker)
+	{
+		load();
+		if (!poiseEnabled || !a_blocker || !a_attacker) return;
+		if (!poiseLookupDone) {
+			poiseLookupDone = true;
+			auto dh = RE::TESDataHandler::GetSingleton();
+			if (dh) poiseSpell = dh->LookupForm<RE::SpellItem>(poiseFormID, poisePlugin);
+			if (poiseSpell) logger::info("PerfectBlockTweaks: found poise spell in {}.", poisePlugin);
+			else logger::info("PerfectBlockTweaks: poise spell NOT found ({} {:x}). Poise damage disabled.", poisePlugin, poiseFormID);
+		}
+		if (!poiseSpell) return;
+		auto caster = a_blocker->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
+		if (!caster) return;
+		// noHitEffectArt = true: no visual hit effect. Blame the blocker so the attacker takes the damage.
+		caster->CastSpellImmediate(poiseSpell, true, a_attacker, 1.0f, false, poiseMagnitude, a_blocker);
+	}
+}
+#pragma endregion
 void blockHandler::init()
 {
 	this->pcPerfectBlockCountdown = settings::uPerfectBlockAccum;
@@ -381,9 +450,8 @@ bool blockHandler::getIsPcTimedBlocking() {
 }
 
 bool blockHandler::getIsPcPerfectBlocking() {
-	//bool ret = isTimedBlockElapsedTimeLessThan(settings::uPerfectBlockAccum);
-	//return ret;
-	return isPcHot && pcPerfectBlockCountdown == 0;
+	//CUSTOM: classic perfect block. A block within the first X seconds (fPerfectBlockWindow, default 0.15) after raising the guard is perfect.
+	return isTimedBlockElapsedTimeLessThan(PerfectBlockTweaks::getPerfectBlockWindow());
 }
 
 void blockHandler::resetPcPerfectBlockCountdown() {
@@ -404,66 +472,7 @@ bool blockHandler::getIsForcedPerfectBlocking(RE::Actor* a_actor)
 
 
 
-#pragma region PerfectBlockTweaks
-/* Custom tweaks: partial stamina restore on perfect block + poise damage via a spell.
-   Settings come from Data\SKSE\Plugins\ValhallaPerfectBlockTweaks.ini */
-namespace PerfectBlockTweaks
-{
-	static bool loaded = false;
-	static float staminaRestorePercent = 0.15f;  // fraction of max stamina restored on a perfect block
-	static float poiseMagnitude = 0.0f;          // 0 = use the spell's own magnitude
-	static bool poiseEnabled = true;
-	static std::string poisePlugin = "ValhallaPoiseBlock.esp";
-	static std::uint32_t poiseFormID = 0x800;
-	static RE::SpellItem* poiseSpell = nullptr;
-	static bool poiseLookupDone = false;
 
-	static void load()
-	{
-		if (loaded) return;
-		loaded = true;
-		CSimpleIniA ini;
-		ini.SetUnicode();
-		if (ini.LoadFile("Data\\SKSE\\Plugins\\ValhallaPerfectBlockTweaks.ini") < 0) {
-			logger::info("PerfectBlockTweaks: ini not found, using defaults.");
-		}
-		staminaRestorePercent = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fStaminaRestorePercent", 0.15));
-		poiseEnabled = ini.GetBoolValue("PerfectBlock", "bPoiseDamage", true);
-		poiseMagnitude = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fPoiseMagnitude", 0.0));
-		poisePlugin = ini.GetValue("PerfectBlock", "sPoisePlugin", "ValhallaPoiseBlock.esp");
-		poiseFormID = static_cast<std::uint32_t>(std::stoul(ini.GetValue("PerfectBlock", "sPoiseSpellFormID", "800"), nullptr, 16));
-		logger::info("PerfectBlockTweaks: staminaRestorePercent={}, poiseEnabled={}, poiseMagnitude={}", staminaRestorePercent, poiseEnabled, poiseMagnitude);
-	}
-
-	static void restoreStamina(RE::Actor* a_blocker)
-	{
-		load();
-		float maxStamina = a_blocker->AsActorValueOwner()->GetPermanentActorValue(RE::ActorValue::kStamina);
-		float restore = maxStamina * staminaRestorePercent;
-		if (restore > 0.f) {
-			Utils::Actor::restoreav(a_blocker, RE::ActorValue::kStamina, restore);
-		}
-	}
-
-	static void damagePoise(RE::Actor* a_blocker, RE::Actor* a_attacker)
-	{
-		load();
-		if (!poiseEnabled || !a_blocker || !a_attacker) return;
-		if (!poiseLookupDone) {
-			poiseLookupDone = true;
-			auto dh = RE::TESDataHandler::GetSingleton();
-			if (dh) poiseSpell = dh->LookupForm<RE::SpellItem>(poiseFormID, poisePlugin);
-			if (poiseSpell) logger::info("PerfectBlockTweaks: found poise spell in {}.", poisePlugin);
-			else logger::info("PerfectBlockTweaks: poise spell NOT found ({} {:x}). Poise damage disabled.", poisePlugin, poiseFormID);
-		}
-		if (!poiseSpell) return;
-		auto caster = a_blocker->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
-		if (!caster) return;
-		// noHitEffectArt = true: no visual hit effect. Blame the blocker so the attacker takes the damage.
-		caster->CastSpellImmediate(poiseSpell, true, a_attacker, 1.0f, false, poiseMagnitude, a_blocker);
-	}
-}
-#pragma endregion
 
 bool blockHandler::processMeleeTimedBlock(RE::Actor* a_blocker, RE::Actor* a_attacker, bool a_forced, bool a_forcedPerfect) {
 	if (!isInBlockAngle(a_blocker, a_attacker)) return false;
