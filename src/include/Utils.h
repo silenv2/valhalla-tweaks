@@ -569,6 +569,17 @@ namespace DtryUtils
 			}
 			_settingsFile = settingsFile;
 		};
+		/*CUSTOM: load a defaults file first, then the user's saved file on top of it (user values win).*/
+		settingsLoader(const char* defaultsFile, const char* userFile)
+		{
+			_ini = std::make_shared<CSimpleIniA>();
+			_ini->LoadFile(defaultsFile);
+			_ini->LoadFile(userFile);
+			if (_ini->IsEmpty()) {
+				logger::info("Warning: {} and {} are empty or missing.", defaultsFile, userFile);
+			}
+			_settingsFile = userFile;
+		};
 		/*Set the active section. Load() will load keys from this section.*/
 		void setActiveSection(const char* section)
 		{
