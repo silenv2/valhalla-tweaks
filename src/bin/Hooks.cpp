@@ -178,12 +178,12 @@ used to block stamina regen in certain situations.*/
 	static void unblock_delayed_threadfunc(RE::AttackBlockHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data, float a_time) 
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(a_time * 1000))); // wait for, by default, 0.3 sec
-		SKSE_ADDTASK
+		SKSE::GetTaskInterface()->AddTask
 		(
 			[a_this, a_event, a_data]() 
 			{
 				auto player = RE::PlayerCharacter::GetSingleton();
-				if (player && !blockHandler::GetSingleton()->isBlockKeyHeld() && (player->IsBlocking() || player->AsActorState()->GetAttackState() == RE::ATTACK_STATE_ENUM::kBash) || player->AsActorState()->IsStaggered()) {
+				if (player && !blockHandler::GetSingleton()->isBlockKeyHeld() && (player->IsBlocking() || player->AsActorState()->GetAttackState() == RE::ATTACK_STATE_ENUM::kBash) || player->AsActorState()->actorState2.staggered) {
 					if (a_event) {
 						a_this->ProcessButton(a_event, a_data);
 					}
@@ -193,7 +193,7 @@ used to block stamina regen in certain situations.*/
 				}
 				player->NotifyAnimationGraph("blockStop"); // just in case
 			}
-		)
+		);
 	}
 	void Hook_AttackBlockHandler_OnProcessButton::ProcessButton(RE::AttackBlockHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data)
 	{
