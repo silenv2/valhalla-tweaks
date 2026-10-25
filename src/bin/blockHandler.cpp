@@ -10,6 +10,8 @@
 #include "include/offsets.h"
 #include "include/staminaHandler.h"
 #include "ValhallaCombat.hpp"
+#include <algorithm>
+#include <random>
 
 
 using HITFLAG = RE::HitData::Flag;
@@ -28,6 +30,13 @@ namespace PerfectBlockTweaks
 	static std::uint32_t poiseFormID = 0x800;
 	static RE::SpellItem* poiseSpell = nullptr;
 	static bool poiseLookupDone = false;
+	// Variable perfect block: strength depends on the incoming attack, so the stagger tier and poise damage differ per block.
+	static bool variableStagger = true;
+	static float powerAttackFactor = 1.6f;   // strength multiplier when the attacker is power attacking
+	static float randomSpread = 0.3f;        // +/- random variation of strength (0.3 = +/-30%)
+	static float smallBelow = 0.8f;          // strength below this -> small stagger
+	static float mediumBelow = 1.2f;         // below this -> medium stagger
+	static float largeBelow = 1.8f;          // below this -> large stagger, otherwise largest
 
 	static void load()
 	{
@@ -42,6 +51,12 @@ namespace PerfectBlockTweaks
 		perfectBlockWindow = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fPerfectBlockWindow", 0.15));
 		poiseEnabled = ini.GetBoolValue("PerfectBlock", "bPoiseDamage", true);
 		poiseMagnitude = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fPoiseMagnitude", 0.0));
+		variableStagger = ini.GetBoolValue("PerfectBlock", "bVariableStagger", true);
+		powerAttackFactor = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fPowerAttackFactor", 1.6));
+		randomSpread = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fRandomSpread", 0.3));
+		smallBelow = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fStaggerSmallBelow", 0.8));
+		mediumBelow = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fStaggerMediumBelow", 1.2));
+		largeBelow = static_cast<float>(ini.GetDoubleValue("PerfectBlock", "fStaggerLargeBelow", 1.8));
 		poisePlugin = ini.GetValue("PerfectBlock", "sPoisePlugin", "ValhallaPoiseBlock.esp");
 		poiseFormID = static_cast<std::uint32_t>(std::stoul(ini.GetValue("PerfectBlock", "sPoiseSpellFormID", "800"), nullptr, 16));
 		logger::info("PerfectBlockTweaks: staminaRestorePercent={}, poiseEnabled={}, poiseMagnitude={}", staminaRestorePercent, poiseEnabled, poiseMagnitude);
@@ -63,7 +78,40 @@ namespace PerfectBlockTweaks
 		}
 	}
 
-	static void damagePoise(RE::Actor* a_blocker, RE::Actor* a_attacker)
+	/* How strong the blocked attack was: 1.0 = a normal swing with an average weapon.
+	   Power attacks, heavier weapons and a random roll push it up or down. */
+	static float computeStrength(RE::Actor* a_attacker)
+	{
+		load();
+		if (!variableStagger || !a_attacker) return 1.0f;
+		float strength = 1.0f;
+		if (Utils::Actor::isPowerAttacking(a_attacker)) strength *= powerAttackFactor;
+		float weight = 10.0f;  // neutral weight (also used for unarmed attackers)
+		if (auto* entry = a_attacker->GetAttackingWeapon()) {
+			if (entry->object) {
+				if (auto* weap = entry->object->As<RE::TESObjectWEAP>()) weight = weap->weight;
+			}
+		}
+		strength *= std::clamp(1.0f + (weight - 10.0f) / 60.0f, 0.85f, 1.35f);
+		if (randomSpread > 0.0f) {
+			static std::mt19937 rng{ std::random_device{}() };
+			std::uniform_real_distribution<float> dist(1.0f - randomSpread, 1.0f + randomSpread);
+			strength *= dist(rng);
+		}
+		return strength;
+	}
+
+	static reactionHandler::reactionType pickReaction(float a_strength)
+	{
+		load();
+		if (!variableStagger) return reactionHandler::reactionType::kMedium;  // original behaviour
+		if (a_strength < smallBelow) return reactionHandler::reactionType::kSmall;
+		if (a_strength < mediumBelow) return reactionHandler::reactionType::kMedium;
+		if (a_strength < largeBelow) return reactionHandler::reactionType::kLarge;
+		return reactionHandler::reactionType::kLargest;
+	}
+
+	static void damagePoise(RE::Actor* a_blocker, RE::Actor* a_attacker, float a_strength)
 	{
 		load();
 		if (!poiseEnabled || !a_blocker || !a_attacker) return;
@@ -78,7 +126,9 @@ namespace PerfectBlockTweaks
 		auto caster = a_blocker->GetMagicCaster(RE::MagicSystem::CastingSource::kInstant);
 		if (!caster) return;
 		// noHitEffectArt = true: no visual hit effect. Blame the blocker so the attacker takes the damage.
-		caster->CastSpellImmediate(poiseSpell, true, a_attacker, 1.0f, false, poiseMagnitude, a_blocker);
+		// A fixed poiseMagnitude is scaled by the strength of the blocked attack. 0 keeps the spell's own magnitude.
+		const float magnitude = (poiseMagnitude > 0.0f) ? poiseMagnitude * a_strength : 0.0f;
+		caster->CastSpellImmediate(poiseSpell, true, a_attacker, 1.0f, false, magnitude, a_blocker);
 	}
 }
 #pragma endregion
@@ -525,10 +575,11 @@ bool blockHandler::processMeleeTimedBlock(RE::Actor* a_blocker, RE::Actor* a_att
 
 	if (isPerfectblock) {//stagger opponent immediately on perfect block.
 		//reactionHandler::triggerRecoil(a_attacker, reactionHandler::reactionType::kLarge);
-		reactionHandler::triggerStagger(a_blocker, a_attacker, reactionHandler::reactionType::kMedium);
+		const float perfectStrength = PerfectBlockTweaks::computeStrength(a_attacker); //CUSTOM: how strong the blocked attack was.
+		reactionHandler::triggerStagger(a_blocker, a_attacker, PerfectBlockTweaks::pickReaction(perfectStrength)); //CUSTOM: stagger tier varies with the attack (was always Medium).
 		debuffHandler::GetSingleton()->stopDebuff(a_blocker);
 		PerfectBlockTweaks::restoreStamina(a_blocker); //CUSTOM: perfect block restores only a fraction of max stamina.
-		PerfectBlockTweaks::damagePoise(a_blocker, a_attacker); //CUSTOM: perfect block damages attacker poise via spell.
+		PerfectBlockTweaks::damagePoise(a_blocker, a_attacker, perfectStrength); //CUSTOM: perfect block damages attacker poise via spell, scaled by attack strength.
 	}
 	else {
 		RE::HitData hitData;
